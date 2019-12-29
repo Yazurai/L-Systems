@@ -37,36 +37,18 @@ rules (angle, base, rules) = rules
 -- |Look up a character in the given set of rules.
 -- Pre: the character exists in the set of rules.
 lookupChar :: Char -> Rules -> String
-lookupChar lookupKey rulesData = snd a
-    where
-        a = filter ((== lookupKey).fst) rulesData !! 0
---Solution using list comprehension
---  = foundList !! 0
---      where
---          foundList = [def | (index, def) <- rulesData, index == lookupKey]
-
+lookupChar lookupKey rulesData = snd.head $ filter ((== lookupKey).fst) rulesData
 
 -- |Expand a command once using the given set of rules.
 expandOne :: Rules -> String -> String
-expandOne rules command = concat expanded
-    where
-        expanded = map (`lookupChar` rules) command
---We can solve this via both list comp/classic recursion
+expandOne rules command = concat $ map (`lookupChar` rules) command
 
 -- |Expand a command ‘n' times using the given set of rules.
 expand :: Rules -> String -> Int -> String
-expand rules base n = expandedList !! index
-    where
-        expandedList = take (n + 1) $ iterate (expandOne rules) base
-        index = length expandedList - 1
---Solution using classic recursion
---  |iterations == 0 = base
---  |otherwise = expandOne rules prevCommand
---      where
---          prevCommand = expand rules base (iterations - 1)
+expand rules base n = iterate (expandOne rules) base !! n
 
 -- |Move a turtle.
--- 84: -- * 'F' moves distance 1 in the current direction.
+-- * 'F' moves distance 1 in the current direction.
 -- * 'L' rotates left according to the given angle.
 -- * 'R' rotates right according to the given angle.
 move :: Char -> TurtleState -> Float -> TurtleState
