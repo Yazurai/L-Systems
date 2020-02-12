@@ -64,11 +64,22 @@ move command ((x, y), currRot) rotateAmount
 -- commands in the string and assuming the given initial angle of rotation.
 -- Method 1 (recursive)
 trace1 :: String -> Float -> Colour -> [ColouredLine]
-trace1 commands angle colour = []
+trace1 commands angle colour = fst $ trace1Helper commands angle colour startTS
+    where
+        startTS = ((0,0), 90)
 
---trace1Helper :: String -> Float -> Colour -> ([ColoredLine], String)
---trace1Helper [] _ _ = []
---trace1Helper (c : cs)
+trace1Helper :: String -> Float -> Colour -> TurtleState -> ([ColouredLine], String)
+trace1Helper [] _ _ _ = ([], [])
+trace1Helper (c:cs) angle colour turtle
+    |c == ']'        = ([], cs)
+    |c == '['        = (ts ++ fst (trace1Helper rs angle colour turtle), [])
+    |commandIsRotate = (ts2, rs2)
+    |otherwise       = ((fst turtle, fst newTurtle,colour):ts2, rs2)
+        where
+            (ts, rs) = trace1Helper cs angle colour turtle
+            (ts2, rs2) = trace1Helper cs angle colour newTurtle
+            newTurtle = move c turtle angle
+            commandIsRotate = c == 'L' || c == 'R'
 
 -- |Trace lines drawn by a turtle using the given colour, following the
 -- commands in the string and assuming the given initial angle of rotation.
@@ -76,34 +87,22 @@ trace1 commands angle colour = []
 trace2 :: String -> Float -> Colour -> [ColouredLine]
 trace2 cmds angle colour = finalCLs
     where
-        (finalCLs, _, _) = foldl (trace2Helper colour angle) ([], startTS, []) cmds
-        convertedCommands = expandOne mapper cmds
-        startPos = (0, 0)
-        startRot = 90
-        startTS = (startPos, startRot)
-
+        (finalCLs, _, _) = foldl (trace2Helper colour angle) ([], ((0,0), 90), []) cmds
 
 -- |The helper function for trace2, It takes the next command(Char) and moves
--- the turtle accordingly, and updates the TurtleState and the coloredLines
+-- the turtle accordingly, and updates the TurtleState and the ColouredLines
 -- if needed. It also handles branches using a stack
 -- |The naming of the variables should be self-explanatory
 trace2Helper :: Colour -> Float -> ([ColouredLine], TurtleState, Stack) -> Char -> ([ColouredLine], TurtleState, Stack)
-trace2Helper colour angle (oldCLs, prevTS, stack) command
-    |command == '[' = (oldCLs, prevTS, (prevTS : stack))
-    |command == ']' = (oldCLs, s, ss)
-    |commandIsRotate = (oldCLs, newTS, stack)
-    |otherwise = (newCLs, newTS, stack)
+trace2Helper colour angle (oldCL, turtle, stack) cmd
+    |cmd == '['      = (oldCL, turtle, (turtle:stack))
+    |cmd == ']'      = (oldCL, head stack, tail stack)
+    |commandIsRotate = (oldCL, newTurtle, stack)
+    |otherwise       = (newCL, newTurtle, stack)
         where
-            branchStart = '['
-            branchEnd = ']'
-            commandIsRotate = command == 'L' || command == 'R'
-            rotateAmount = angle
-            newTS = move command prevTS rotateAmount
-            (oldPos, _) = prevTS
-            (newPos, _) = newTS
-            newCLs = (oldPos, newPos, colour) : oldCLs
-            (s:ss) = stack
-
+            commandIsRotate = cmd == 'L' || cmd == 'R'
+            newTurtle = move cmd turtle angle
+            newCL = (fst turtle, fst newTurtle, colour):oldCL
 
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 -- Further extensions and random experiments to explore new ideas
@@ -126,6 +125,7 @@ type Fade = (Colour, Colour, Float)
 type FadeInfo = (Colour, Float, Colour)
 
 -- |The stack needed to remember where we were at the begining of the branch
+type AdvStack = ([ColouredLine], TurtleState, Stack, [FadeInfo], FadeStack, [Float], Float)
 type FadeStack = [[FadeInfo]]
 
 -- A variation where the l-system is probabilistic
@@ -190,6 +190,21 @@ treeBush
         ]
     )
 
+probTree :: ProbSystem
+probTree
+    = ( 25
+        , "X"
+        , [ ('X', 0.5, "X[+MX]M")
+          , ('X', 0.5, "X[-MX]M")
+          , ('M', 1, "M")
+          , ('[', 1, "[")
+          , (']', 1, "]")
+          , ('+', 1, "+")
+          , ('-', 1, "-")
+        ]
+    )
+    
+
 -- |Best used for bush 8
 rainbow :: [Fade]
 rainbow
@@ -231,96 +246,74 @@ treeFade
 trace2Fade :: [Float] -> String -> Float -> [Fade] -> [(Int, Float, Float)] -> Float -> [ColouredLine]
 trace2Fade rands cmds angle fades symbols prob = finalCLs
     where
-        (finalCLs, _, _, _, _, _) = foldl (trace2FadeHelper angle symbols prob) ([], startTS, [], fadeInfo, [], rands) cmds
-        convertedCmds = expandOne mapper cmds
-        startPos = (0, 0)
-        startRot = 90
-        startTS = (startPos, startRot)
+        (finalCLs, _, _, _, _, _, _) = foldl (trace2FadeHelper angle symbols prob) ([], ((0,0), 90), [], fadeInfo, [], rands, 0) cmds
         fadeInfo = map convertFade fades
 
 -- |Converts a Fade into a FadeInfo for latter functions to handle
 convertFade :: Fade -> FadeInfo
-convertFade ((bR, bG, bB), (tR, tG, tB), rad) = fadeInfo
+convertFade (startC@(bR, bG, bB), (tR, tG, tB), rad) = (startC, rad, colorRelChange)
     where
         colorRelChange = ((tR - bR) / rad, (tG - bG) / rad, (tB - bB) / rad)
-        startColour = (bR, bG, bB)
-        fadeInfo = (startColour, rad, colorRelChange)
 
-trace2FadeHelper :: Float -> [(Int, Float, Float)] -> Float -> ([ColouredLine], TurtleState, Stack, [FadeInfo], FadeStack, [Float]) -> Char -> ([ColouredLine], TurtleState, Stack, [FadeInfo], FadeStack, [Float])
-trace2FadeHelper angle symbols prob (oldCLs, prevTS, stack, oldFI, fadeStack, rands) cmd
-    |cmd == '[' = (oldCLs, prevTS, (prevTS : stack), oldFI, (oldFI : fadeStack), rands)
-    |cmd == ']' = (newCLSymbol, s, ss, f, fs, rs)
-    |cmdIsRotate = (oldCLs, newTS, stack, oldFI, fadeStack, rands)
-    |otherwise = (newCLs, newTS, stack, updFI, fadeStack, rands)
+scaleFade :: [Fade] -> Float -> [Fade]
+scaleFade f n = map (\(a,b,c) -> (a,b,c*n)) f
+
+trace2FadeHelper :: Float -> [(Int, Float, Float)] -> Float -> AdvStack -> Char -> AdvStack
+trace2FadeHelper angle symbols prob (oldCLs, prevTS, stack, oldFI, fadeStack, rands@(r:r2:r3:rs), strPoint) cmd
+    |cmd == '[' = (oldCLs, prevTS, (prevTS : stack), oldFI, (oldFI : fadeStack), rands, strPoint+1)
+    |cmd == ']' = (newCLSymbol, head stack, tail stack, head fadeStack, tail fadeStack, rs, strPoint)
+    |cmdIsRotate = (oldCLs, newTS, stack, oldFI, fadeStack, rands, strPoint)
+    |otherwise = (newCLs, newTS, stack, updFI, fadeStack, rands, strPoint)
         where
             cmdIsRotate = cmd == 'L' || cmd == 'R'
             newTS = move cmd prevTS angle
-            (oldPos, _) = prevTS
-            (newPos, _) = newTS
             (updFI, newC) = changeColour oldFI
-            newCLs = (oldPos, newPos, newC):oldCLs
-            (r:r2:r3:rs) = rands
+            newCLs = (fst prevTS, fst newTS, newC):oldCLs
             newCLSymbol = (trailSymbol r r2 r3 symbols prob prevTS) ++ oldCLs
-            (s:ss) = stack
-            (f:fs) = fadeStack
 
 -- |This function takes care of handling the color fading
 changeColour :: [FadeInfo] -> ([FadeInfo], Colour)
-changeColour [f] = ([newFI], newC)
+changeColour fades@(f@(c@(cR, cG, cB), r, rel@(rR, rG, rB)):fs) = (finalFIs, newC)
     where
-        (c, r, rel) = f
-        (cR, cG, cB) = c
-        (rR, rG, rB) = rel
-        newC = if r > 0 then (cR + rR, cG + rG, cB + rB) else c
-        newFI = if r > 0 then (newC, r - 1, rel) else (newC, r, rel)
-changeColour (f : fs) = (finalFIs, newC)
-    where
-        (c, r, rel) = f
-        (cR, cG, cB) = c
-        (rR, rG, rB) = rel
         newC = if r > 0 then (cR + rR, cG + rG, cB + rB) else c
         newFI = (newC, r - 1, rel)
-        finalFIs = if r > 0 then newFI : fs else fs
+        finalFIs =  if length fades > 1 
+                        then if r > 0 then newFI:fs else fs
+                        else if r > 0 then [newFI] else [f]
 
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 -- PROBABILITY
 -- |Since we will be using probability, we will need some sort of rng,
--- for this, I'll be using System.Random, which is perfectly fulfills
+-- for this, I'll be using System.Random, which perfectly fulfills
 -- the role we want here. No need for cryptographic quality randoms...
 
 -- |Takes in a list of randoms between 0-1, a key and a set of rules, and finds
 -- a corresponding definition using the probabilities
-lookupCharProb :: ProbRules -> [Float] -> Char -> String
-lookupCharProb probRulesData rands lookupKey = def
+lookupCharProb :: ProbRules -> Float -> Char -> String
+lookupCharProb probRulesData rand lookupKey = def
     where
         a = [(k, f, s) | (k, f, s) <- probRulesData, k == lookupKey]
         ratios = [prob | (_, prob, _) <- a]
         index = (length (takeWhile (>= 0) (scanl (-) rand ratios))) - 1
         (_, _, def) = a !! index
-        (rand : _) = rands
 
 -- |The probability version of expandOne
 expandOneProb :: ProbRules -> [Float] -> String -> String
-expandOneProb rulesSet rands command = concat expanded
+expandOneProb rulesSet rands command = concat $ map (\(c,r) -> lookupCharProb rulesSet r c) cmds
     where
-        expanded = map (lookupCharProb rulesSet rands) command
+        cmds = zip command rands
 
 -- |The probability version of expand
 expandProb :: ProbRules -> String -> Int -> [Float] -> String
-expandProb rules base n rands = expandedList !! index
-    where
-        expandedList = take (n + 1) $ iterate (expandOneProb rules rands) base
-        index = length expandedList - 1
+expandProb rules base n rands = iterate (expandOneProb rules rands) base !! n
 
 -- |Returns the rotation angle for the given ProbSystem.
 angleProb :: ProbSystem -> Float
 angleProb (angle, base, rules) = angle
 
-
 -- |Returns the base string for the given ProbSystem.
 baseProb :: ProbSystem -> String
 baseProb (angle, base, rules) = base
-
 
 -- |Returns the set of rules for the given ProbSystem.
 rulesProb :: ProbSystem -> ProbRules
@@ -335,10 +328,9 @@ rulesProb (angle, base, rules) = rules
 -- type of symbols for visibility
 trailSymbol :: Float -> Float -> Float -> [(Int, Float, Float)] -> Float -> TurtleState -> [ColouredLine]
 trailSymbol rand1 rand2 rand3 potSyms prob currTS
-    |willSpawn = trailSymbolBuilder multip clr (symbolsDataBase !! chosen) currTS
-    |not willSpawn = []
+    |rand1 < prob = trailSymbolBuilder multip clr (symbolsDataBase !! chosen) currTS
+    |otherwise    = []
         where
-            willSpawn = rand1 < prob
             chosen = trailSymbolChooser rand2 potSyms
             clr = trailColorChooser rand3 (symbolsDataBase !! chosen)
             multip = [m | (i, _, m) <- potSyms, i == fromIntegral chosen] !! 0
@@ -352,8 +344,8 @@ trailColorChooser rand (_, ((bR, bG, bB), (tR, tG, tB))) = (bR + rDiff * rand, b
         gDiff = tG - bG
         bDiff = tB - bB
 
--- |This function builds out the coloredline list from a (Int) size multiplier
--- an a given colour
+-- |This function builds out the ColouredLine list from a (Int) size multiplier
+-- and a given colour
 trailSymbolBuilder :: Float -> Colour -> Path -> TurtleState -> [ColouredLine]
 trailSymbolBuilder _ _ ([], (_, _)) _ = []
 trailSymbolBuilder multiplier colour ((p : ps), cs) prevTS
@@ -362,9 +354,7 @@ trailSymbolBuilder multiplier colour ((p : ps), cs) prevTS
         where
             newTS = moveAdvanced cmd prevTS multiplier dgr
             (cmd, dgr) = p
-            (oldPos, _) = prevTS
-            (newPos, _) = newTS
-            newCL = (oldPos, newPos, colour)
+            newCL = (fst prevTS, fst newTS, colour)
 
 -- |This function chooses which one will be spawned using the probability
 -- of each given symbol
@@ -385,6 +375,96 @@ moveAdvanced command ((x, y), currRot) moveAmount rotateAmount
             newX = x + cos (currRot / 180 * pi) * moveAmount
             newY = y + sin (currRot / 180 * pi) * moveAmount
 
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+-- GENETIC ALGORITHM
+-- This part implements a generic algorithm that tries to emulate the evolution of trees by using a weighted fitness function.
+-- The fitness function is a weighted sum of the following:
+-- Highest reach: most trees in nature try to be as tall as possible as that enables them to collest as much sunlight as possible
+-- Symmetry on the vertical axis, or at least a balanced distribution of weight
+-- Sunlight absorbing capabilities.
+-- Structural strength
+
+highestPoint :: [ColouredLine] -> Float
+highestPoint = foldl (\acc (a,b,c) -> if snd b > acc then snd b else acc) 0
+
+symmetryPoint :: [ColouredLine] -> Float
+symmetryPoint xs = foldl (\acc (a,b,c) -> acc + (fst a) + (fst b)) 0 xs
+
+absorbingPoint :: [ColouredLine] -> [ColouredLine] -> Float
+absorbingPoint [(a,b,c)] orig = if isLightCollector b orig then 1 else 0
+absorbingPoint ((x1,y1,_):(x2,y2,c):xs) orig
+    |y1 == x1  = if isLightCollector y1 orig then 1 + point else point
+    |otherwise = point
+        where
+            point = absorbingPoint ((x2,y2,c):xs) orig
+
+isLightCollector :: Vertex -> [ColouredLine] -> Bool
+isLightCollector a [] = True
+isLightCollector a ((x1,x2,_):xs) = (l < snd a) && (isLightCollector a xs) 
+    where
+        m = if fst x2 > fst x1 then (snd x2 - snd x1) / (fst x2 - fst x2) else (snd x1 - snd x2) / (fst x1 - fst x2)
+        l = (snd x1) + m * (fst a - fst x1)
+
+testSytem :: System
+testSytem = generate dnaGen 32 24
+
+evaluate :: System -> Int -> Int -> Float
+evaluate sys n seed = 0.05*highest + 2*absorb - 1*symmetry - 0.3*structure
+    where
+        highest = highestPoint cls
+        symmetry = symmetryPoint cls
+        absorb = absorbingPoint cls cls
+        (cls,structure) = trace2FadeGen randomList (lSystem sys n) (angle sys) rainbow [] 0 
+        randomList = help seed
+
+trace2FadeGen :: [Float] -> String -> Float -> [Fade] -> [(Int, Float, Float)] -> Float -> ([ColouredLine],Float)
+trace2FadeGen rands cmds angle fades symbols prob = (finalCLs,strPoint)
+    where
+        (finalCLs, _, _, _, _, _,strPoint) = foldl (trace2FadeHelper angle symbols prob) ([], ((0,0), 90), [], fadeInfo, [], rands, 0) cmds
+        fadeInfo = map convertFade fades
+
+type DNAGen = [(Float, Char)]
+
+dnaGen :: DNAGen 
+dnaGen =   [(0.35, 'M'),
+            (0.25, '-'),
+            (0.25, '+'),
+            (0.15, '[')
+            ]
+
+
+
+generateDNA :: DNAGen -> Int -> [Float] -> System
+generateDNA gens n rands = (30, "M", [('M',dna),
+                                      ('+',"+"),         
+                                      ('-',"-"),
+                                      ('[',"["),
+                                      (']',"]")
+                                      ])
+    where 
+        dna = generateDNASequence gens n rands
+
+generate :: DNAGen -> Int -> Int -> System
+generate gens n seed = generateDNA gens n randomList
+    where
+        randomList = help seed
+
+generateDNASequence :: DNAGen -> Int -> [Float] -> String
+generateDNASequence _ 0 _ = ""
+generateDNASequence gens n (r:rs) 
+    |next == '[' && n > nextBranchSize + 2 = ('[':nextBranch) ++ (']':(generateDNASequence gens (n-nextBranchSize-2) (drop (nextBranchSize+1) rs)))
+    |next == '['                           = (generateDNASequence gens n rs)
+    |otherwise                             = next:(generateDNASequence gens (n-1) rs)
+        where
+            next = generateDNAHelix gens r 
+            nextBranchSize = (ceiling ((head rs) * 10))
+            nextBranch = generateDNASequence gens nextBranchSize (tail rs)
+
+generateDNAHelix :: DNAGen -> Float -> Char
+generateDNAHelix gens rand = snd (gens !! index)
+    where
+        index = (length (takeWhile (>= 0) (scanl (-) rand ratios))) - 1
+        ratios = map fst gens
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 -- Some test systems.
 
@@ -488,10 +568,10 @@ lSystem :: System -> Int -> String
 lSystem (_, base, rs) n = expandOne mapper (expand rs base n)
 
 -- |The probabilistic version of lSystem
-lSystemProb :: ProbSystem -> Int -> String
-lSystemProb (_, base, rs) n = expandOne mapper (expandProb rs base n randomList)
+lSystemProb :: ProbSystem -> Int -> Int -> String
+lSystemProb (_, base, rs) n seed = expandOne mapper (expandProb rs base n randomList)
     where
-        randomList = help
+        randomList = help seed
 
 -- |Uses the first tracing method
 drawLSystem1 :: System -> Int -> Colour -> IO ()
@@ -502,38 +582,49 @@ drawLSystem2 :: System -> Int -> Colour -> IO ()
 drawLSystem2 system n colour = drawLines (trace2 (lSystem system n) (angle system) colour)
 
 -- |This is the version with color fading, takes a list of Fade
-drawLSystem2Fade :: System -> Int -> [Fade] -> IO ()
-drawLSystem2Fade system n fade = drawLines (trace2Fade randomList (lSystem system n) (angle system) fade [] 0)
+drawLSystem2Fade :: System -> Int -> [Fade] -> Int -> IO ()
+drawLSystem2Fade system n fade seed = drawLines (trace2Fade randomList (lSystem system n) (angle system) fade [] 0)
     where
-        randomList = help
+        randomList = help seed
 
 -- |This is the version with fading and symbols at the end aswell
 -- a list of symbols [(Int, Float, Float)], where they are a certain symbols
 -- index in symbolsDataBase, their probability to appear, and their size
--- And a final probability which is a general one, that's the probability
+-- And a final probability which is a 1general one, that's the probability
 -- that a branch will be symbolized
-drawLSystem2FadeSymbol :: System -> Int -> [Fade] -> [(Int, Float, Float)] -> Float -> IO ()
-drawLSystem2FadeSymbol system n fade symbols prob = drawLines (trace2Fade randomList (lSystem system n) (angle system) fade symbols prob)
+drawLSystem2FadeSymbol :: System -> Int -> [Fade] -> [(Int, Float, Float)] -> Float -> Int -> IO ()
+drawLSystem2FadeSymbol system n fade symbols prob seed = drawLines (trace2Fade randomList (lSystem system n) (angle system) fade symbols prob)
     where
-        randomList = help
+        randomList = help seed
 
 -- |This is the version with fading, symbols and a probabilistic system
-drawLSystem2FadeSymbolProb :: ProbSystem -> Int -> [Fade] -> [(Int, Float, Float)] -> Float -> IO ()
-drawLSystem2FadeSymbolProb system n fade symbols prob = drawLines (trace2Fade randomList (lSystemProb system n) (angleProb system) fade symbols prob)
+drawLSystem2FadeSymbolProb :: ProbSystem -> Int -> [Fade] -> [(Int, Float, Float)] -> Float -> Int -> IO ()
+drawLSystem2FadeSymbolProb system n fade symbols prob seed = drawLines (trace2Fade randomList (lSystemProb system n seed) (angleProb system) fade symbols prob)
     where
-        randomList = help
+        randomList = help seed
 
 -- |Random number generation
-help :: [Float]
-help 
-    = do
-        { let randGen = mkStdGen 34
-        ; let rng = randomStuff randGen
+help :: Int -> [Float]
+help seed
+    = do 
+        { let g = mkStdGen seed
+        ; let rng = (randomRs (0.0, 1.0) g)
         ; rng
         }
 
-randomStuff :: RandomGen g => g -> [Float]
-randomStuff g = (randomRs (0.0, 1.0) g)
-
 -- || need to create a main function that will iterate through a bunch of
 -- pre-defined fancy looking L-Systems once they press enter
+
+-- Notable cases
+-- drawLSystem2FadeSymbol bush 8 treeFade [(1,1,1)] 0.3
+-- drawLSystem2FadeSymbol bush 8 treeFade [(1,1,2)] 0.15
+-- drawLSystem2FadeSymbol bush 8 treeFade [(1,1,2)] 0.05
+-- drawLSystem2FadeSymbol bush 8 treeFade [(4,1,5)] 0.3
+-- drawLSystem2FadeSymbol bush 8 rainbow [(4,1,5)] 0
+-- drawLSystem2 cross 3 red
+-- drawLSystem2 triangle 4 red
+-- drawLSystem2 arrowHead 4 red
+-- drawLSystem2 peanoGosper 4 red
+-- drawLSystem2 dragon 10 red
+-- drawLSystem2FadeSymbolProb probTree 7 rainbow [(2,1,0.24)] 0.65 66
+-- drawLSystem2FadeSymbolProb 
