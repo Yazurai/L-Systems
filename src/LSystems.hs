@@ -379,10 +379,10 @@ moveAdvanced command ((x, y), currRot) moveAmount rotateAmount
 -- GENETIC ALGORITHM
 -- This part implements a generic algorithm that tries to emulate the evolution of trees by using a weighted fitness function.
 -- The fitness function is a weighted sum of the following:
--- Highest reach: most trees in nature try to be as tall as possible as that enables them to collest as much sunlight as possible
+-- Highest reach: most trees in nature try to be as tall as possible as that enables them to collect the most sunlight possible
 -- Symmetry on the vertical axis, or at least a balanced distribution of weight
 -- Sunlight absorbing capabilities.
--- Structural strength
+-- Structural strength (minus fitness for potential weak points)
 
 highestPoint :: [ColouredLine] -> Float
 highestPoint = foldl (\acc (a,b,c) -> if snd b > acc then snd b else acc) 0
@@ -393,27 +393,37 @@ symmetryPoint xs = foldl (\acc (a,b,c) -> acc + (fst a) + (fst b)) 0 xs
 absorbingPoint :: [ColouredLine] -> [ColouredLine] -> Float
 absorbingPoint [(a,b,c)] orig = if isLightCollector b orig then 1 else 0
 absorbingPoint ((x1,y1,_):(x2,y2,c):xs) orig
-    |y1 == x1  = if isLightCollector y1 orig then 1 + point else point
+    |y1 == x2  = if isLightCollector y1 orig then 1 + point else point
     |otherwise = point
         where
             point = absorbingPoint ((x2,y2,c):xs) orig
 
 isLightCollector :: Vertex -> [ColouredLine] -> Bool
 isLightCollector a [] = True
-isLightCollector a ((x1,x2,_):xs) = (l < snd a) && (isLightCollector a xs) 
+isLightCollector a ((x1,x2,_):xs) = (not sameColumn || (l < snd a)) && (isLightCollector a xs) 
     where
-        m = if fst x2 > fst x1 then (snd x2 - snd x1) / (fst x2 - fst x2) else (snd x1 - snd x2) / (fst x1 - fst x2)
+        sameColumn = if fst x1 < fst x2 then (fst x1 < fst a) && (fst a < fst x2) else (fst x2 < fst a) && (fst a < fst x1)
+        m = if fst x1 < fst x2  then abs(snd x2 - snd x1) / abs(fst x2 - fst x1) else (snd x1 - snd x2) / (fst x1 - fst x2)
         l = (snd x1) + m * (fst a - fst x1)
 
-testSytem :: System
-testSytem = generate dnaGen 32 24
+testSystem :: System
+testSystem = generate dnaGen 32 17
 
-evaluate :: System -> Int -> Int -> Float
-evaluate sys n seed = 0.05*highest + 2*absorb - 1*symmetry - 0.3*structure
+printEvaluate :: System -> Int -> Int -> (Float, Float, Float, Float)
+printEvaluate sys n seed = (highest, absorb, symmetry, structure)
     where
         highest = highestPoint cls
         symmetry = symmetryPoint cls
-        absorb = absorbingPoint cls cls
+        absorb = absorbingPoint (reverse cls) (reverse cls)
+        (cls,structure) = trace2FadeGen randomList (lSystem sys n) (angle sys) rainbow [] 0 
+        randomList = help seed
+
+evaluate :: System -> Int -> Int -> Float
+evaluate sys n seed = 0.05*highest + 2*absorb - 0.5*symmetry - 0.05*structure
+    where
+        highest = highestPoint cls
+        symmetry = symmetryPoint cls
+        absorb = absorbingPoint (reverse cls) (reverse cls)
         (cls,structure) = trace2FadeGen randomList (lSystem sys n) (angle sys) rainbow [] 0 
         randomList = help seed
 
@@ -426,13 +436,11 @@ trace2FadeGen rands cmds angle fades symbols prob = (finalCLs,strPoint)
 type DNAGen = [(Float, Char)]
 
 dnaGen :: DNAGen 
-dnaGen =   [(0.35, 'M'),
-            (0.25, '-'),
-            (0.25, '+'),
-            (0.15, '[')
+dnaGen =   [(0.4, 'M'),
+            (0.15, '-'),
+            (0.15, '+'),
+            (0.3, '[')
             ]
-
-
 
 generateDNA :: DNAGen -> Int -> [Float] -> System
 generateDNA gens n rands = (30, "M", [('M',dna),
@@ -627,4 +635,3 @@ help seed
 -- drawLSystem2 peanoGosper 4 red
 -- drawLSystem2 dragon 10 red
 -- drawLSystem2FadeSymbolProb probTree 7 rainbow [(2,1,0.24)] 0.65 66
--- drawLSystem2FadeSymbolProb 
