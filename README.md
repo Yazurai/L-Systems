@@ -60,12 +60,12 @@ mapper = [ ('M', "F")
 drawLSystem2 :: System -> Int -> Colour -> IO ()
 drawLSystem2 system n colour
 ```
-To use color fades, use:
+### To use color fades, use:
 ```haskell
 drawLSystem2Fade :: System -> Int -> [Fade] -> Int -> IO ()
 drawLSystem2Fade system n fade seed
 ```
-### To define a color fade:
+To define a color fade:
 ```haskell
 --(starting color, finish color, duration of fade)
 --color can be given by predefined colors, or by giving an rgb triplet (0-1)
